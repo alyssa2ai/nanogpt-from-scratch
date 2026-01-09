@@ -1,8 +1,12 @@
 # Python virtual environment
 venv/
+.venv/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
 # Python cache
 __pycache__/
+
+# Generated artifacts
+generated_output.txt
