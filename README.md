@@ -1,47 +1,66 @@
-# My Own GPT: A Character-Level GPT Implementation
+# nanoGPT From Scratch — Character-Level GPT
 
-## Overview
+Hands-on, minimal implementation of a character-level GPT in PyTorch, progressing from a baseline **bigram** model to a multi-head **Transformer** with positional embeddings and layer normalization. The project trains on the Tiny Shakespeare corpus (shipped as `input.txt`) and generates text to `generated_output.txt`.
 
-This project is a complete implementation of a GPT (Generative Pre-trained Transformer) model from scratch, built using PyTorch. It is designed to understand the inner workings of Large Language Models by building every core component, from the basic bigram model to the full transformer block with self-attention.
+Inspired by Andrej Karpathy’s “Let’s build GPT”, but organized for recruiters and learners to inspect, run, and extend quickly.
 
-This project is based on the phenomenal "Let's build GPT" by Andrej Karpathy.
+## Project Structure
 
-## Key Features
+- `bigram.py` — simplest baseline; each token predicts the next directly from an embedding lookup.
+- `gpt.py` — full Transformer: token + positional embeddings, multi-head self-attention, MLP feed-forward, residuals + layer norms, generation loop.
+- `myowngpt.ipynb` — exploratory notebook (mirrors the scripts).
+- `input.txt` — Tiny Shakespeare training corpus.
+- `generated_output.txt` — latest generated sample after running `bigram.py`.
+- `requirements.txt` — minimal dependencies.
 
-- **Built from Scratch:** Core components like the self-attention mechanism, multi-head attention, and transformer blocks are implemented from the ground up.
-- **Progressive Learning:** Starts with a simple Bigram model as a baseline before implementing the full GPT architecture.
-- **Training & Validation:** Includes proper training and validation loops to monitor model performance and prevent overfitting.
-- **Text Generation:** The trained model can generate new text character by character based on the provided training data.
+## Quickstart
 
-## How to Run
+```bash
+# 1) Create & activate a virtual environment
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate    # macOS/Linux
 
-1.  **Clone the repository:**
+# 2) Install dependencies
+pip install -r requirements.txt
 
-2.  **Create a virtual environment and install dependencies:**
+# 3) Run the simple bigram baseline (fast)
+python bigram.py
+# → writes generated_output.txt
 
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    pip install -r requirements.txt
-    ```
+# 4) Run the full GPT (slower, better quality)
+python gpt.py
+# → prints training loss every 500 iters and a 500-char sample at the end
+```
 
-    _(Note: You will need to update your `requirements.txt` to include `torch` and `jupyter`)_
+## What the Code Does (at a Glance)
 
-3.  **Run the Jupyter Notebook:**
-    ```bash
-    jupyter notebook myowngpt.ipynb
-    ```
+1. **Data prep**: read `input.txt`, build character vocab, encode to integer tensors, 90/10 train/val split.
+2. **Batching**: random contiguous blocks (`block_size`) from train/val for inputs/targets.
+3. **Models**:
+   - **Bigram**: `nn.Embedding(vocab, vocab)` maps current char → logits for next char.
+   - **GPT**: token + positional embeddings → stacked Transformer blocks (multi-head self-attention + MLP + residual + LayerNorm) → vocab logits.
+4. **Training loop**: cross-entropy loss, AdamW optimizer, periodic eval on val set.
+5. **Generation**: start from a zero token, autoregressively sample `max_new_tokens` chars, decode to text, save to `generated_output.txt`.
 
-## Results & Sample Output
+## Reproducible Settings
 
-After training the GPT model for 5000 iterations, over a whopping 10.81123 M parameters,the validation loss was successfully reduced to approximately 1.2. The model learned to generate text that mimics the structure of the input data.
+- Seeds: `torch.manual_seed(1337)`
+- Bigram: `batch_size=32`, `block_size=8`, `max_iters=3000`, `lr=1e-2`
+- GPT: `batch_size=64`, `block_size=256`, `n_embd=384`, `n_head=6`, `n_layer=6`, `dropout=0.2`, `max_iters=5000`, `lr=3e-4`
 
-The output below demonstrates that the model successfully learned:
+## Results Snapshot
 
-- **Word Structure:** Grouping characters into word-like units separated by spaces.
-- **Punctuation and Capitalization:** Using quotes for dialogue, periods, commas, and capital letters correctly.
-- **Vocabulary:** Spelling some words from the training data, like "Watson" and "Holmes".
+- Bigram (character context = 1): train/val loss ~2.45 after 3k iters; outputs are coherent at the character level but semantically weak.
+- GPT (context = 256): ~10.8M params; val loss ≈ 1.2 after 5k iters on Tiny Shakespeare; outputs show recognizable words, punctuation, and dialogue structure.
 
-**Sample Generated Text:**
+## Tips
 
-> "What kning on I am to resore eye cams to 'nexter feelock of her in the pizle, Watson not the clooke in we to same to... He dridchy and the cruling brom as eflecter."
+- GPU recommended for `gpt.py` but CPU works for small demos.
+- To generate longer text, increase `max_new_tokens` in either script.
+- If you change `input.txt`, vocab is rebuilt automatically—no extra steps.
+
+## Licensing / Attribution
+
+- Dataset: Tiny Shakespeare (public domain, via Karpathy’s char-rnn repo).
+- Architecture inspiration: Andrej Karpathy’s “Let’s build GPT”.

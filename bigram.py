@@ -1,6 +1,12 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import sys
+import io
+
+# Fix console encoding issues on Windows
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # hyperparameters
 batch_size = 32 # how many independent sequences will we process in parallel?
@@ -119,4 +125,9 @@ for iter in range(max_iters):
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+generated_text = decode(m.generate(context, max_new_tokens=500)[0].tolist())
+
+# Save to file to avoid encoding issues
+with open('generated_output.txt', 'w', encoding='utf-8') as f:
+    f.write(generated_text)
+print("Generated text saved to generated_output.txt")
