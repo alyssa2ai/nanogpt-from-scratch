@@ -2,17 +2,17 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# hyperparameters
+# hyperparameters - Optimized for 2-3 hour high-quality CPU training
 batch_size = 64 # how many independent sequences will we process in parallel?
 block_size = 256 # what is the maximum context length for predictions?
-max_iters = 5000
-eval_interval = 500
+max_iters = 10000  # Extended training for better convergence
+eval_interval = 500  # Show progress every 500 steps
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
-n_embd = 384
-n_head = 6
-n_layer = 6
+eval_iters = 200  # More thorough evaluation
+n_embd = 384  # Full embedding dimension for better quality
+n_head = 6    # More attention heads for richer representations
+n_layer = 6   # Deeper network for better learning
 dropout = 0.2
 # ------------
 
@@ -80,8 +80,16 @@ class Head(nn.Module):
         k = self.key(x)   # (B,T,hs)
         q = self.query(x) # (B,T,hs)
         # compute attention scores ("affinities")
+        # WHY SCALING: We scale by 1/√d_k to prevent the dot products from growing too large,
+        # which would push the softmax into regions with extremely small gradients (saturation).
+        # This scaling maintains stable gradients during backpropagation.
         wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        # WHY CAUSAL MASKING: We apply triangular masking to prevent tokens from attending to future positions.
+        # This preserves the auto-regressive property: each token can only use information from previous tokens.
+        # The mask sets future positions to -inf, which become 0 after softmax.
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+        # WHY SOFTMAX: Converts raw attention scores into a probability distribution (sums to 1).
+        # This creates a weighted average where the model learns which tokens are most relevant.
         wei = F.softmax(wei, dim=-1) # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
@@ -90,11 +98,18 @@ class Head(nn.Module):
         return out
 
 class MultiHeadAttention(nn.Module):
-    """ multiple heads of self-attention in parallel """
+    """ Multiple heads of self-attention in parallel 
+    
+    WHY MULTI-HEAD: Different attention heads can learn to focus on different aspects
+    of the input (e.g., syntax vs. semantics, local vs. long-range dependencies).
+    This provides the model with richer representational capacity than single-head attention.
+    """
 
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        # WHY PROJECTION: After concatenating multi-head outputs, we project back to n_embd dimension
+        # to mix information across heads and maintain consistent dimensionality.
         self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
 
@@ -104,14 +119,19 @@ class MultiHeadAttention(nn.Module):
         return out
 
 class FeedFoward(nn.Module):
-    """ a simple linear layer followed by a non-linearity """
+    """ Position-wise Feed-Forward Network
+    
+    WHY FFN: While attention handles token interactions, the FFN provides additional
+    representational capacity for each position independently. The expansion to 4x dimension
+    allows the model to learn complex non-linear transformations of the attended information.
+    """
 
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
-            nn.ReLU(),
-            nn.Linear(4 * n_embd, n_embd),
+            nn.Linear(n_embd, 4 * n_embd),  # Expand to 4x (standard in Transformers)
+            nn.ReLU(),  # Non-linearity for learning complex patterns
+            nn.Linear(4 * n_embd, n_embd),  # Project back to original dimension
             nn.Dropout(dropout),
         )
 
@@ -119,7 +139,14 @@ class FeedFoward(nn.Module):
         return self.net(x)
 
 class Block(nn.Module):
-    """ Transformer block: communication followed by computation """
+    """ Transformer block: communication followed by computation 
+    
+    WHY THIS ARCHITECTURE:
+    - Pre-LayerNorm (normalize before attention/FFN): Improves training stability
+    - Residual connections (x + ...): Allows gradients to flow directly through the network,
+      preventing vanishing gradients in deep models. The model learns residual functions
+      (what to ADD to x) rather than learning the full transformation from scratch.
+    """
 
     def __init__(self, n_embd, n_head):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
@@ -131,20 +158,24 @@ class Block(nn.Module):
         self.ln2 = nn.LayerNorm(n_embd)
 
     def forward(self, x):
-        x = x + self.sa(self.ln1(x))
-        x = x + self.ffwd(self.ln2(x))
+        # Pre-LN architecture: normalize first, then apply transformation with residual
+        x = x + self.sa(self.ln1(x))    # Attention block with residual
+        x = x + self.ffwd(self.ln2(x))  # FFN block with residual
         return x
 
 class GPTLanguageModel(nn.Module):
 
     def __init__(self):
         super().__init__()
-        # each token directly reads off the logits for the next token from a lookup table
+        # Token embeddings: map each character to a learned dense vector
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        # WHY POSITIONAL EMBEDDINGS: Self-attention is permutation-invariant (order-agnostic).
+        # We add positional information so the model knows where each token appears in the sequence.
+        # Learned embeddings (vs. sinusoidal) allow the model to adapt position encoding to the task.
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) # final layer norm
-        self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.lm_head = nn.Linear(n_embd, vocab_size)  # Project to vocabulary for next-token prediction
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -203,12 +234,23 @@ print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+import time
+start_time = time.time()
+
 for iter in range(max_iters):
 
     # every once in a while evaluate the loss on train and val sets
     if iter % eval_interval == 0 or iter == max_iters - 1:
         losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        elapsed = time.time() - start_time
+        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} | {elapsed/60:.1f} min elapsed")
+    
+    # Show quick progress every 50 steps (without expensive eval)
+    elif iter % 50 == 0:
+        elapsed = time.time() - start_time
+        steps_per_sec = iter / elapsed if elapsed > 0 else 0
+        eta_seconds = (max_iters - iter) / steps_per_sec if steps_per_sec > 0 else 0
+        print(f"step {iter}/{max_iters} | {steps_per_sec:.2f} steps/sec | ETA: {eta_seconds/60:.1f} min")
 
     # sample a batch of data
     xb, yb = get_batch('train')

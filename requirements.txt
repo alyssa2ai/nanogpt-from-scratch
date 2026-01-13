@@ -1,3 +1,9 @@
-# requirements.txt
-torch
-jupyterlab
+# Core dependencies for NanoGPT implementation
+torch>=2.0.0
+numpy>=1.24.0
+
+# For visualization and analysis (optional)
+matplotlib>=3.7.0
+
+# For notebook development
+jupyterlab>=4.0.0
